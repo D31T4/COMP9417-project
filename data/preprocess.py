@@ -1,6 +1,7 @@
 '''
 pre-process CMU mocap dataset
 '''
+import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -182,7 +183,7 @@ class Skeleton:
 
         Returns:
         ---
-        - coords[T x V * 3]: T = no. of frames, V = no. of joints
+        - coords[T, V, 3]: T = no. of frames, V = no. of joints
         '''
         motions = [*AMCParser().parse(path)]
 
@@ -502,7 +503,9 @@ def preprocess(inputDir: str, outputDir: str):
     - outputDir: output directory
     '''
     # delete all files in outputDir
-    rmtree(outputDir)
+    if os.path.exists(outputDir):
+        rmtree(outputDir)
+
     os.mkdir(outputDir)
 
     paths = os.listdir(inputDir)
@@ -513,6 +516,20 @@ def preprocess(inputDir: str, outputDir: str):
     for filename in paths:
         if filename.endswith('.asf.txt'):
             skeleton = ASFParser().parse(f'{inputDir}/{filename}')
+
+            # save adjacency matrix
+            adj_mat = np.zeros((len(skeleton.compute_seq), len(skeleton.compute_seq)), dtype=int)
+
+            for joint in skeleton.compute_seq:
+                pidx = skeleton.joint2index(joint)
+
+                for children in joint.children:
+                    cidx = skeleton.joint2index(children)
+                    adj_mat[pidx, cidx] = 1
+                    adj_mat[cidx, pidx] = 1
+
+            prefix = filename.removesuffix('.asf.txt')
+            torch.save(torch.from_numpy(adj_mat), f'{outputDir}/{prefix}.adj_mat.pt')
             break
 
     if not skeleton:
@@ -525,11 +542,14 @@ def preprocess(inputDir: str, outputDir: str):
             continue
 
         # parse file
-        coordinates = skeleton.get_coords(f'{inputDir}/{filename}')
+        coords = skeleton.get_coords(f'{inputDir}/{filename}')
         
         prefix = filename.removesuffix('.amc.txt')
-        np.save(f'{outputDir}/{prefix}.npy', coordinates)
+        torch.save(torch.from_numpy(coords), f'{outputDir}/{prefix}.pt')
     #endregion
 
+DefaultInputDir = 'raw'
+DefaultOutputDir = 'pt'
+
 if __name__ == '__main__':
-    preprocess('raw', 'npy')
+    preprocess(DefaultInputDir, DefaultOutputDir)
