@@ -62,11 +62,24 @@ class MotionDataset(Dataset[torch.Tensor]):
         - feat[L, V, 6]: L = `seq_len`, V = no. of joints
         '''
         if self.memo:
-            return self.features[idx]
+            feats = self.features[idx]
+
+            # sample subsequence
+            start_idx = np.random.randint(0, feats.shape[0] - self.seq_len, dtype=int)
+            return feats[start_idx:(start_idx + self.seq_len)]
         else:
-            return self._read_from_disc(idx)
+            coords: torch.Tensor = self._read_from_disc(idx)
+
+            # sample subsequence
+            start_idx = np.random.randint(1, coords.shape[0] - self.seq_len, dtype=int)
+            coords = coords[(start_idx - 1):(start_idx + self.seq_len)]
+
+            pos = normalize(coords[1:], self.loc_span)
+            vel = normalize(coords[1:] - coords[:-1], self.vel_span)
+
+            return torch.cat((pos, vel), 2)
     
-    def _read_from_disc(self, idx: int):
+    def _read_from_disc(self, idx: int) -> torch.Tensor:
         '''
         read data from disc and map to features
 
@@ -76,18 +89,9 @@ class MotionDataset(Dataset[torch.Tensor]):
 
         Returns:
         ---
-        - feat[L, V, 6]: L = `seq_len`, V = no. of joints
+        - feat[T, V, 3]: T = no. of frames, V = no. of joints
         '''
-        coords: torch.Tensor = torch.load(f'{self.dir}/{self.fids[idx]}.pt')
-
-        # sample subsequence
-        start_idx = np.random.randint(1, coords.shape[0] - self.seq_len, dtype=int)
-        coords = coords[(start_idx - 1):(start_idx + self.seq_len)]
-
-        pos = normalize(coords[1:], self.loc_span)
-        vel = normalize(coords[1:] - coords[:-1], self.vel_span)
-
-        return torch.cat((pos, vel), 2)
+        return torch.load(f'{self.dir}/{self.fids[idx]}.pt')
     
     def _get_stats(self):
         '''
@@ -114,10 +118,12 @@ class MotionDataset(Dataset[torch.Tensor]):
         self.features: list[torch.Tensor] = [None] * len(self)
 
         for idx in range(len(self)):
-            self.features[idx] = self._read_from_disc(idx)
+            coords = self._read_from_disc(idx)
 
+            pos = normalize(coords[1:], self.loc_span)
+            vel = normalize(coords[1:] - coords[:-1], self.vel_span)
 
-    
+            self.features[idx] = torch.cat((pos, vel), 2)
 
 def create_split(dir: str, num_train: int, num_val: int, num_test: int):
     '''
@@ -151,6 +157,3 @@ def create_split(dir: str, num_train: int, num_val: int, num_test: int):
     test_ids = fids[(num_train + num_val):(num_train + num_val + num_test)]
 
     return train_ids, val_ids, test_ids
-
-
-
