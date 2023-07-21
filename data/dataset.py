@@ -3,17 +3,17 @@ from torch.utils.data import Dataset
 import numpy as np
 import os
 
-def normalize(x: torch.Tensor, factor: float):
+def normalize(x: torch.Tensor, xmin: float, xmax: float):
     '''
     normalize
     '''
-    return x / factor
+    return 2 * (x - xmin) / (xmax - xmin) - 1
 
-def unnormalize(x: torch.Tensor, factor: float):
+def unnormalize(x: torch.Tensor, xmin: float, xmax: float):
     '''
     un-normalize
     '''
-    return x * factor
+    return (x + 1) * (xmax - xmin) / 2. + xmin
 
 class MotionDataset(Dataset[torch.Tensor]):
     def __init__(self, seq_len: int, fids: list[str], dir: str, memo: bool = True):
@@ -74,8 +74,8 @@ class MotionDataset(Dataset[torch.Tensor]):
             start_idx = np.random.randint(1, coords.shape[0] - self.seq_len, dtype=int)
             coords = coords[(start_idx - 1):(start_idx + self.seq_len)]
 
-            pos = normalize(coords[1:], self.loc_span)
-            vel = normalize(coords[1:] - coords[:-1], self.vel_span)
+            pos = normalize(coords[1:], *self.loc_span)
+            vel = normalize(coords[1:] - coords[:-1], *self.vel_span)
 
             return torch.cat((pos, vel), 2)
     
@@ -97,19 +97,23 @@ class MotionDataset(Dataset[torch.Tensor]):
         '''
         get stats for normalization
         '''
-        loc_span = -float('inf')
-        vel_span = -float('inf')
+        loc_min = float('inf')
+        loc_max = -float('inf')
+        vel_min = float('inf')
+        vel_max = -float('inf')
 
         for fid in self.fids:
             coords: torch.Tensor = torch.load(f'{self.dir}/{fid}.pt')
             pos = coords[1:]
             vel = coords[1:] - coords[:-1]
 
-            loc_span = max(loc_span, torch.max(torch.abs(pos)))
-            vel_span = max(vel_span, torch.max(torch.abs(vel)))
+            loc_min = min(loc_min, torch.min(pos))
+            loc_max = max(loc_max, torch.max(pos))
+            vel_min = min(vel_min, torch.min(vel))
+            vel_max = max(vel_max, torch.max(vel))
 
-        self.loc_span = loc_span
-        self.vel_span = vel_span
+        self.loc_span = (loc_min, loc_max)
+        self.vel_span = (vel_min, vel_max)
 
     def _mount_in_mem(self):
         '''
@@ -120,8 +124,8 @@ class MotionDataset(Dataset[torch.Tensor]):
         for idx in range(len(self)):
             coords = self._read_from_disc(idx)
 
-            pos = normalize(coords[1:], self.loc_span)
-            vel = normalize(coords[1:] - coords[:-1], self.vel_span)
+            pos = normalize(coords[1:], *self.loc_span)
+            vel = normalize(coords[1:] - coords[:-1], *self.vel_span)
 
             self.features[idx] = torch.cat((pos, vel), 2)
 
