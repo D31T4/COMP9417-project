@@ -372,8 +372,7 @@ class RNNDecoder(nn.Module):
             pred_all.append(pred)
 
         preds = torch.stack(pred_all, dim=1)
-
-        return preds.transpose(1, 2).contiguous(), hidden
+        return preds, hidden
 
 class NRI(nn.Module):
     def __init__(
@@ -442,4 +441,4 @@ if __name__ == '__main__':
     # run test
     adj_mat = torch.ones((3, 3)) - torch.eye(3)    
     nri = NRI(state_dim=3, prior_steps=2, adj_mat=adj_mat, edge_types=2)
-    nri.forward(torch.randn((1, 2, 3, 3)), pred_steps=1)
+    out = nri.forward(torch.randn((1, 2, 3, 3)), pred_steps=1)
