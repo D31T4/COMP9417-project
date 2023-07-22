@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import os
+from collections.abc import Callable
 
 def normalize(x: torch.Tensor, xmin: float, xmax: float):
     '''
@@ -49,7 +50,7 @@ class MotionDataset(Dataset[torch.Tensor]):
         memo and self._mount_in_mem()
 
     def __len__(self):
-        return len(self.fids)
+        return len(self.index)
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         '''
@@ -61,18 +62,18 @@ class MotionDataset(Dataset[torch.Tensor]):
         ---
         - feat[L, V, 6]: L = `seq_len`, V = no. of joints
         '''
+        i, j = self.index[idx]
+
         if self.memo:
-            feats = self.features[idx]
+            feats = self.features[i]
 
             # sample subsequence
-            start_idx = np.random.randint(0, feats.shape[0] - self.seq_len, dtype=int)
-            return feats[start_idx:(start_idx + self.seq_len)]
+            return feats[j:(j + self.seq_len)]
         else:
-            coords: torch.Tensor = self._read_from_disc(idx)
+            coords: torch.Tensor = self._read_from_disc(i)
 
             # sample subsequence
-            start_idx = np.random.randint(1, coords.shape[0] - self.seq_len, dtype=int)
-            coords = coords[(start_idx - 1):(start_idx + self.seq_len)]
+            coords = coords[(j + 1):(j + 1 + self.seq_len)]
 
             pos = normalize(coords[1:], *self.loc_span)
             vel = normalize(coords[1:] - coords[:-1], *self.vel_span)
@@ -95,14 +96,16 @@ class MotionDataset(Dataset[torch.Tensor]):
     
     def _get_stats(self):
         '''
-        get stats for normalization
+        get stats for normalization and build index
         '''
         loc_min = float('inf')
         loc_max = -float('inf')
         vel_min = float('inf')
         vel_max = -float('inf')
 
-        for fid in self.fids:
+        index: list[tuple[int, int]] = []
+
+        for i, fid in enumerate(self.fids):
             coords: torch.Tensor = torch.load(f'{self.dir}/{fid}.pt')
             pos = coords[1:]
             vel = coords[1:] - coords[:-1]
@@ -112,8 +115,12 @@ class MotionDataset(Dataset[torch.Tensor]):
             vel_min = min(vel_min, torch.min(vel))
             vel_max = max(vel_max, torch.max(vel))
 
+            for j in range(0, coords.shape[0] - self.seq_len - 1):
+                index.append((i, j))
+
         self.loc_span = (loc_min, loc_max)
         self.vel_span = (vel_min, vel_max)
+        self.index = index
 
     def _mount_in_mem(self):
         '''
@@ -121,15 +128,15 @@ class MotionDataset(Dataset[torch.Tensor]):
         '''
         self.features: list[torch.Tensor] = [None] * len(self)
 
-        for idx in range(len(self)):
+        for idx in range(len(self.fids)):
             coords = self._read_from_disc(idx)
 
             pos = normalize(coords[1:], *self.loc_span)
             vel = normalize(coords[1:] - coords[:-1], *self.vel_span)
 
             self.features[idx] = torch.cat((pos, vel), 2)
-
-def create_split(dir: str, num_train: int, num_val: int, num_test: int):
+            
+def create_split(dir: str, num_train: int, num_val: int, num_test: int, shuffle: Callable[[list[str]], None] = None):
     '''
     create a partition over motion data in directory
 
@@ -139,6 +146,7 @@ def create_split(dir: str, num_train: int, num_val: int, num_test: int):
     - num_train: size of training set
     - num_val: size of validation set
     - num_test: size of test set
+    - shuffle: shuffler
 
     Returns:
     ---
@@ -154,10 +162,17 @@ def create_split(dir: str, num_train: int, num_val: int, num_test: int):
 
     assert num_train + num_val + num_test <= len(fids)
 
-    np.random.shuffle(fids)
+    shuffle is not None and shuffle(fids)
 
     train_ids = fids[:num_train]
     val_ids = fids[num_train:(num_train + num_val)]
     test_ids = fids[(num_train + num_val):(num_train + num_val + num_test)]
 
     return train_ids, val_ids, test_ids
+
+if __name__ == '__main__':
+    train_ids, val_ids, test_ids = create_split('pt', 12, 4, 7, np.random.default_rng(123).shuffle)
+    print(train_ids)
+
+    dataset = MotionDataset(50, train_ids, 'pt')
+    print(dataset[0].shape)

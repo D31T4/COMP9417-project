@@ -3,8 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.autograd import Variable
-
 def compute_graph_stats(adj_mat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     '''
     compute graph statistics
@@ -288,7 +286,7 @@ class RNNDecoder(nn.Module):
         - prediction at t + 1
         - hidden state at t + 1
         '''
-        # node2edge
+        # node2edge: use hidden state as node embedding
         receivers = hidden[:, self.recv_edges, :]
         senders = hidden[:, self.send_edges, :]
         pre_msg = torch.cat([senders, receivers], dim=-1)
@@ -331,7 +329,7 @@ class RNNDecoder(nn.Module):
         pred = F.dropout(F.relu(self.out_fc2(pred)), p=self.dropout_prob)
         pred = self.out_fc3(pred)
 
-        # Predict position/velocity difference (residual)
+        # Predict position/velocity difference
         pred = inputs + pred
 
         return pred, hidden
@@ -423,6 +421,12 @@ class NRI(nn.Module):
         ---
         - data: tensor[B, T, V, state_dim]
         - pred_steps: no. of steps to be predicted
+        - rand: sample edge types randomly (only applicable in eval mode)
+        - train_params: training params (only applicable in train mode)
+
+        Returns:
+        ---
+        - predictions: tensor[B, pred_steps, V, state_dim]
         '''
         logits = self.encoder(data[:, :self.prior_steps, :])
 
@@ -434,11 +438,11 @@ class NRI(nn.Module):
             rel_types = torch.zeros_like(logits).scatter_(-1, index, 1.0)
 
         out, _ = self.decoder(data, rel_types, pred_steps, train_params=train_params)
-        return out
+        return out, logits
 
 
 if __name__ == '__main__':
     # run test
     adj_mat = torch.ones((3, 3)) - torch.eye(3)    
-    nri = NRI(state_dim=3, prior_steps=2, adj_mat=adj_mat, edge_types=2)
+    nri = NRI(state_dim=3, prior_steps=2, adj_mat=adj_mat, edge_types=2, hid_dim=16)
     out = nri.forward(torch.randn((1, 2, 3, 3)), pred_steps=1)
