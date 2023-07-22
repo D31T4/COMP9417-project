@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import os
+from collections.abc import Callable
 
 def normalize(x: torch.Tensor, xmin: float, xmax: float):
     '''
@@ -65,13 +66,13 @@ class MotionDataset(Dataset[torch.Tensor]):
             feats = self.features[idx]
 
             # sample subsequence
-            start_idx = np.random.randint(0, feats.shape[0] - self.seq_len, dtype=int)
+            start_idx = np.random.randint(0, feats.shape[0] - self.seq_len)
             return feats[start_idx:(start_idx + self.seq_len)]
         else:
             coords: torch.Tensor = self._read_from_disc(idx)
 
             # sample subsequence
-            start_idx = np.random.randint(1, coords.shape[0] - self.seq_len, dtype=int)
+            start_idx = np.random.randint(1, coords.shape[0] - self.seq_len)
             coords = coords[(start_idx - 1):(start_idx + self.seq_len)]
 
             pos = normalize(coords[1:], *self.loc_span)
@@ -128,8 +129,8 @@ class MotionDataset(Dataset[torch.Tensor]):
             vel = normalize(coords[1:] - coords[:-1], *self.vel_span)
 
             self.features[idx] = torch.cat((pos, vel), 2)
-
-def create_split(dir: str, num_train: int, num_val: int, num_test: int):
+            
+def create_split(dir: str, num_train: int, num_val: int, num_test: int, shuffle: Callable[[list[str]], None] = None):
     '''
     create a partition over motion data in directory
 
@@ -139,6 +140,7 @@ def create_split(dir: str, num_train: int, num_val: int, num_test: int):
     - num_train: size of training set
     - num_val: size of validation set
     - num_test: size of test set
+    - shuffle: shuffler
 
     Returns:
     ---
@@ -154,10 +156,14 @@ def create_split(dir: str, num_train: int, num_val: int, num_test: int):
 
     assert num_train + num_val + num_test <= len(fids)
 
-    np.random.shuffle(fids)
+    shuffle is not None and shuffle(fids)
 
     train_ids = fids[:num_train]
     val_ids = fids[num_train:(num_train + num_val)]
     test_ids = fids[(num_train + num_val):(num_train + num_val + num_test)]
 
     return train_ids, val_ids, test_ids
+
+if __name__ == '__main__':
+    train_ids, val_ids, test_ids = create_split('pt', 12, 4, 7, np.random.default_rng(123).shuffle)
+    print(train_ids)
