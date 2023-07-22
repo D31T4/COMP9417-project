@@ -545,7 +545,7 @@ def preprocess(inputDir: str, outputDir: str):
         coords = skeleton.get_coords(f'{inputDir}/{filename}')
         
         prefix = filename.removesuffix('.amc.txt')
-        torch.save(torch.from_numpy(coords), f'{outputDir}/{prefix}.pt')
+        torch.save(torch.Tensor(coords), f'{outputDir}/{prefix}.pt')
     #endregion
 
 DefaultInputDir = 'raw'
