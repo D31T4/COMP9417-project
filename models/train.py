@@ -77,8 +77,25 @@ def train(
     datasets: tuple[Dataset, Dataset, Dataset], 
     edge_prior: torch.Tensor,
     train_params = None,
-    checkpoint_params: CheckpointParameters = None
+    checkpoint_params: CheckpointParameters = None,
+    optimizer: optim.Optimizer = None,
+    lr_scheduler: optim.lr_scheduler.LRScheduler = None,
+    silent: bool = False
 ):
+    '''
+    train model
+
+    Arguments:
+    ---
+    - model
+    - n_epoch: no. of epochs
+    - datasets: train set, validation set, test set
+    - edge_prior: edge prior
+    - train_params: training parameters
+    - checkpoint_params: model checkpoint parameters
+    - optimizer: optimizer
+    - lr_scheduler: learning rate scheduler
+    '''
     # current min validation loss
     current_best = float('inf')
 
@@ -86,8 +103,11 @@ def train(
 
     train_loader, val_loader, test_loader = [DataLoader(dataset, batch_size=8, shuffle=True) for dataset in datasets]
 
-    optimizer = optim.Adam(list(model.parameters()), lr=0.0005)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
+    if optimizer is None:
+        optimizer = optim.Adam(list(model.parameters()), lr=0.0005)
+
+    if lr_scheduler is None:
+        lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
 
     for epoch in range(n_epoch):
         #region train
@@ -100,7 +120,7 @@ def train(
         model.train()
         optimizer.zero_grad()
 
-        for idx, data in tqdm(enumerate(train_loader), desc=f'Epoch: {epoch}, train', total=len(train_loader)):
+        for idx, data in tqdm(enumerate(train_loader), desc=f'Epoch: {epoch}, train', total=len(train_loader), disable=silent):
             pred, logits = model(data, data.size(1) - 1, train_params=train_params)
             target = data[:, 1:, :, :]
             
@@ -114,9 +134,8 @@ def train(
             train_mse.append(F.mse_loss(pred, target).item())
             train_nll.append(loss_nll.item())
             train_kl.append(loss_kl.item())
-            break
             
-        scheduler.step()
+        lr_scheduler.step()
         model.eval()
         #endregion
         
@@ -125,14 +144,13 @@ def train(
         val_kl: list[float] = []
         val_nll: list[float] = []
 
-        for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, validation', total=len(val_loader)):
+        for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, validation', total=len(val_loader), disable=silent):
             pred, logits = model(data, data.size(1) - 1, rand=True)
             target = data[:, 1:, :, :]
 
             val_mse.append(F.mse_loss(pred, target).item())
             val_nll.append(nll_gaussian(pred, target).item())
             val_kl.append(kl_categorial(logits, edge_prior).item())
-            break
         #endregion
 
         #region log metrics
@@ -144,17 +162,18 @@ def train(
         val_nll = np.mean(val_nll)
         val_mse = np.mean(val_mse)
 
-        print(
-            'Epoch: {:04d}'.format(epoch),
-            'nll_train: {:.10f}'.format(train_nll),
-            'kl_train: {:.10f}'.format(train_kl),
-            'mse_train: {:.10f}'.format(train_mse),
-            'nll_val: {:.10f}'.format(val_nll),
-            'kl_val: {:.10f}'.format(val_kl),
-            'mse_val: {:.10f}'.format(val_mse),
-            'elapsed: {:.4f}s'.format(time.time() - epoch_start),
-            sep='\n'
-        )
+        if not silent:
+            print(
+                'Epoch: {:04d}'.format(epoch),
+                'nll_train: {:.10f}'.format(train_nll),
+                'kl_train: {:.10f}'.format(train_kl),
+                'mse_train: {:.10f}'.format(train_mse),
+                'nll_val: {:.10f}'.format(val_nll),
+                'kl_val: {:.10f}'.format(val_kl),
+                'mse_val: {:.10f}'.format(val_mse),
+                'elapsed: {:.4f}s'.format(time.time() - epoch_start),
+                sep='\n'
+            )
         #endregion
 
         # checkpoint
