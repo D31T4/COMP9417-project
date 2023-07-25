@@ -50,12 +50,12 @@ class LearnablePositionalEncoding(nn.Module):
         # Initialize the positional embeddings to small values
         nn.init.uniform_(self.positional_embedding.weight, -0.1, 0.1)
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         # Determine the shape and dimensions
-        *batch_dims, seq_len, emb_dim = x.shape
+        *batch_dims, seq_len, emb_dim = inputs.shape
         
         # Generate positions
-        positions = torch.arange(0, seq_len, dtype=torch.long, device=x.device)
+        positions = torch.arange(0, seq_len, dtype=torch.long, device=inputs.device)
         
         # Get positional embeddings
         positional_emb = self.positional_embedding(positions)
