@@ -45,10 +45,10 @@ class LearnablePositionalEncoding(nn.Module):
         super(LearnablePositionalEncoding, self).__init__()
         
         # This embedding layer will act as our learnable positional encoding
-        self.positional_embedding = nn.Embedding(max_len, emb_dim)
+        self.positional_embedding = nn.Parameter(torch.empty(max_len, emb_dim))
         
         # Initialize the positional embeddings to small values
-        nn.init.uniform_(self.positional_embedding.weight, -0.1, 0.1)
+        nn.init.uniform_(self.positional_embedding, -0.1, 0.1)
     
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         # Determine the shape and dimensions
@@ -58,7 +58,7 @@ class LearnablePositionalEncoding(nn.Module):
         positions = torch.arange(0, seq_len, dtype=torch.long, device=inputs.device)
         
         # Get positional embeddings
-        positional_emb = self.positional_embedding(positions)
+        positional_emb = self.positional_embedding[positions]
         
         # Expand positional encoding to match the batch dimensions of the input tensor
         for _ in batch_dims:
@@ -227,14 +227,14 @@ class MLPEncoder(nn.Module):
         ---
         - edge latent: Tensor[B, E, n_out]
         '''
-        inputs = inputs + self.positional_encoding(inputs)
-    
         # reshape to Tensor[B, V, T * n_in]
         # autoregression
         x = inputs.transpose(1, 2).contiguous().view(inputs.size(0), inputs.size(2), -1)
 
         # convert node state to node embedding: Tensor[B, V, n_hid]
         x = self.mlp1(x)
+
+        inputs = inputs + self.positional_encoding(inputs)
 
         # compute edge embedding
         x = self.node2edge(x) # aggregate connected nodes: Tensor[B, E, 2 * n_hid]
