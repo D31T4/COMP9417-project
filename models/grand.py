@@ -39,7 +39,9 @@ class GraNDDecoder(RNNDecoderWithPE):
 
     def ode(self, t, x: torch.Tensor):
         '''
-        diffusion equation
+        diffusion equation.
+        
+        stolen from https://github.com/twitter-research/graph-neural-pde/blob/main/src/function_laplacian_diffusion.py
 
         Arguments:
         ---
@@ -73,7 +75,6 @@ class GraNDDecoder(RNNDecoderWithPE):
 
         for b in range(hidden.size(0)):
             self.ode_x0 = hidden[b, :].clone().detach_()
-            self.ode_rel_type = rel_type[b, :]
             self.ode_attention = diffusivity[b, :]
 
             node_embeddings[b, :] = odeint(
@@ -125,6 +126,9 @@ class GraNDDecoder(RNNDecoderWithPE):
         return super().forward(data, rel_type, pred_steps, hidden, train_params)
 
 class GraNRI(NRI):
+    '''
+    NRI with GRAND decoder
+    '''
     def __init__(
         self, 
         state_dim: int, 

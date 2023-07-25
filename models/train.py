@@ -10,6 +10,8 @@ import time
 def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     '''
     categorical KL-divergence
+    
+    stolen from: https://github.com/ethanfetaya/NRI/blob/master/utils.py
 
     Arguments:
     ---
@@ -27,6 +29,8 @@ def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
 def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tensor = 5e-5):
     '''
     gaussian negative log likelihood
+
+    stolen from: https://github.com/ethanfetaya/NRI/blob/master/utils.py
 
     Arguments:
     ---
@@ -193,6 +197,7 @@ if __name__ == '__main__':
     sys.path.insert(0, '..')
 
     from models.nri import NRI
+    from models.nri_PE import NRIWithPE
     from models.grand import GraNRI
     from data.dataset import MotionDataset, create_split
 
