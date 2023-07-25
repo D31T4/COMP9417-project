@@ -81,8 +81,6 @@ def train(
     optimizer: optim.Optimizer = None,
     lr_scheduler: optim.lr_scheduler.LRScheduler = None,
     silent: bool = False,
-    debug: bool = False,
-    lr: float = 5e-3
 ):
     '''
     train model
@@ -106,7 +104,7 @@ def train(
     train_loader, val_loader, test_loader = [DataLoader(dataset, batch_size=8, shuffle=True) for dataset in datasets]
 
     if optimizer is None:
-        optimizer = optim.Adam(list(model.parameters()), lr=lr)
+        optimizer = optim.Adam(list(model.parameters()), lr=5e-3)
 
     if lr_scheduler is None:
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
@@ -167,13 +165,13 @@ def train(
         if not silent:
             print(
                 'Epoch: {:04d}'.format(epoch),
-                'nll_train: {:.10f}'.format(train_nll),
-                'kl_train: {:.10f}'.format(train_kl),
-                'mse_train: {:.10f}'.format(train_mse),
-                'nll_val: {:.10f}'.format(val_nll),
-                'kl_val: {:.10f}'.format(val_kl),
-                'mse_val: {:.10f}'.format(val_mse),
-                'elapsed: {:.4f}s'.format(time.time() - epoch_start),
+                'nll train: {:.10f}'.format(train_nll),
+                ' kl train: {:.10f}'.format(train_kl),
+                'mse train: {:.10f}'.format(train_mse),
+                'nll valid: {:.10f}'.format(val_nll),
+                ' kl valid: {:.10f}'.format(val_kl),
+                'mse valid: {:.10f}'.format(val_mse),
+                '  elapsed: {:.4f}s'.format(time.time() - epoch_start),
                 sep='\n'
             )
         #endregion
@@ -218,4 +216,4 @@ if __name__ == '__main__':
     #edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
     edge_prior = torch.tensor([0.25, 0.25, 0.25, 0.25])
 
-    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior, debug=True)
+    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior)
