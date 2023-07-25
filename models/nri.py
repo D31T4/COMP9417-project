@@ -220,7 +220,8 @@ class NRITrainingParams:
         self.ground_truth_interval = ground_truth_interval
 
 class RNNDecoder(nn.Module):
-    def __init__(self, 
+    def __init__(
+        self, 
         n_in: int, 
         edge_types: int, 
         n_hid: int, 
@@ -247,7 +248,8 @@ class RNNDecoder(nn.Module):
             nn.Linear(n_hid, n_hid) for _ in range(edge_types)
         ])
 
-        self.msg_out_shape = n_hid
+        self.n_hid = n_hid
+        self.etypes = edge_types
         self.skip_first_edge_type = skip_first
 
         # GRU
@@ -292,17 +294,13 @@ class RNNDecoder(nn.Module):
         pre_msg = torch.cat([senders, receivers], dim=-1)
 
         # edge embedding: Tensor[B, E, S]
-        all_msgs = torch.zeros(pre_msg.size(0), pre_msg.size(1), self.msg_out_shape)
+        all_msgs = torch.zeros(pre_msg.size(0), pre_msg.size(1), self.n_hid)
 
         if inputs.is_cuda:
             all_msgs = all_msgs.cuda()
 
-        start_idx: int = 1
-        norm = float(len(self.msg_fc2))
-        
-        if self.skip_first_edge_type:
-            start_idx -= 1
-            norm -= 1
+
+        start_idx = int(not self.skip_first_edge_type)
 
         # Run separate MLP for every edge type
         # sum edge embedding for each edge type
@@ -313,7 +311,7 @@ class RNNDecoder(nn.Module):
             msg = F.dropout(msg, p=self.dropout_prob)
             msg = F.tanh(self.msg_fc2[i](msg))
 
-            all_msgs += msg / norm
+            all_msgs += msg
 
         # edge2node aggregate
         agg_msgs = torch.matmul(self.edge_weights, all_msgs)
@@ -353,7 +351,7 @@ class RNNDecoder(nn.Module):
         - predictions: tensor[B, T, V, S]
         '''
         if hidden is None:
-            hidden = torch.zeros(data.size(0), data.size(2), self.msg_out_shape)
+            hidden = torch.zeros(data.size(0), data.size(2), self.n_hid)
 
             if data.is_cuda:
                 hidden = hidden.cuda()
