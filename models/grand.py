@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchdiffeq import odeint
 
-from nri import MLPEncoder, RNNDecoder, NRI
+from nri_PE import MLPEncoderWithPE, RNNDecoderWithPE, NRI
 
-class GraNDDecoder(RNNDecoder):
+class GraNDDecoder(RNNDecoderWithPE):
     '''
     NRI decoder with GraND
     '''
@@ -36,14 +36,12 @@ class GraNDDecoder(RNNDecoder):
         self.Wq = nn.ModuleList(nn.Linear(self.n_hid, self.n_hid) for _ in range(self.etypes))
         self.Wk = nn.ModuleList(nn.Linear(self.n_hid, self.n_hid) for _ in range(self.etypes))
 
-        #self.pe = nn.Parameter(torch.empty((adj_mat.size(0), self.n_hid)))
-        #nn.init.xavier_normal_(self.pe)
-
-
 
     def ode(self, t, x: torch.Tensor):
         '''
-        diffusion equation
+        diffusion equation.
+        
+        stolen from https://github.com/twitter-research/graph-neural-pde/blob/main/src/function_laplacian_diffusion.py
 
         Arguments:
         ---
@@ -77,7 +75,6 @@ class GraNDDecoder(RNNDecoder):
 
         for b in range(hidden.size(0)):
             self.ode_x0 = hidden[b, :].clone().detach_()
-            self.ode_rel_type = rel_type[b, :]
             self.ode_attention = diffusivity[b, :]
 
             node_embeddings[b, :] = odeint(
@@ -126,12 +123,12 @@ class GraNDDecoder(RNNDecoder):
         # scale by 1 / sqrt(d) to compute scaled dot-product attention
         self.adj_tensor = adj_tensor * self.n_hid ** -0.5
 
-        #if hidden is None:
-        #    hidden = self.pe.repeat(data.size(0), 1, 1)
-
         return super().forward(data, rel_type, pred_steps, hidden, train_params)
 
 class GraNRI(NRI):
+    '''
+    NRI with GRAND decoder
+    '''
     def __init__(
         self, 
         state_dim: int, 
@@ -144,7 +141,7 @@ class GraNRI(NRI):
     ):
         super(NRI, self).__init__()
 
-        self.encoder = MLPEncoder(
+        self.encoder = MLPEncoderWithPE(
             n_in=prior_steps * state_dim,
             n_hid=hid_dim,
             n_out=edge_types,
