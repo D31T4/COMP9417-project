@@ -80,7 +80,9 @@ def train(
     checkpoint_params: CheckpointParameters = None,
     optimizer: optim.Optimizer = None,
     lr_scheduler: optim.lr_scheduler.LRScheduler = None,
-    silent: bool = False
+    silent: bool = False,
+    debug: bool = False,
+    lr: float = 5e-3
 ):
     '''
     train model
@@ -104,7 +106,7 @@ def train(
     train_loader, val_loader, test_loader = [DataLoader(dataset, batch_size=8, shuffle=True) for dataset in datasets]
 
     if optimizer is None:
-        optimizer = optim.Adam(list(model.parameters()), lr=0.0005)
+        optimizer = optim.Adam(list(model.parameters()), lr=lr)
 
     if lr_scheduler is None:
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
@@ -124,10 +126,10 @@ def train(
             pred, logits = model(data, data.size(1) - 1, train_params=train_params)
             target = data[:, 1:, :, :]
             
-            loss_kl = kl_categorial(logits, edge_prior)
+            loss_kl = kl_categorial(F.softmax(logits, dim=-1), edge_prior)
             loss_nll = nll_gaussian(pred, target)
-            
             loss = loss_nll + loss_kl
+
             loss.backward()
             optimizer.step()
 
@@ -144,13 +146,13 @@ def train(
         val_kl: list[float] = []
         val_nll: list[float] = []
 
-        for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, validation', total=len(val_loader), disable=silent):
+        for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, valid', total=len(val_loader), disable=silent):
             pred, logits = model(data, data.size(1) - 1, rand=True)
             target = data[:, 1:, :, :]
 
             val_mse.append(F.mse_loss(pred, target).item())
             val_nll.append(nll_gaussian(pred, target).item())
-            val_kl.append(kl_categorial(logits, edge_prior).item())
+            val_kl.append(kl_categorial(F.softmax(logits, dim=-1), edge_prior).item())
         #endregion
 
         #region log metrics
@@ -193,6 +195,7 @@ if __name__ == '__main__':
     sys.path.insert(0, '..')
 
     from models.nri import NRI
+    from models.grand import GraNRI
     from data.dataset import MotionDataset, create_split
 
     DATASET_DIR = '../data/pt'
@@ -211,7 +214,8 @@ if __name__ == '__main__':
 
     adj_mat = torch.ones((31, 31)) - torch.eye(31)
 
-    model = NRI(state_dim=6, prior_steps=50, adj_mat=adj_mat)
-    edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
+    model = GraNRI(state_dim=6, prior_steps=50, hid_dim=128, adj_mat=adj_mat)
+    #edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
+    edge_prior = torch.tensor([0.25, 0.25, 0.25, 0.25])
 
-    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior)
+    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior, debug=True)
