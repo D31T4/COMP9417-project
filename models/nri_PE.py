@@ -227,7 +227,6 @@ class MLPEncoder(nn.Module):
         ---
         - edge latent: Tensor[B, E, n_out]
         '''
-        emb_dim = inputs.shape[-1]
         inputs = inputs + self.positional_encoding(inputs)
     
         # reshape to Tensor[B, V, T * n_in]
