@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nri import MLPEncoder, RNNDecoder, NRITrainingParams, NRI
+from .nri import MLPEncoder, RNNDecoder, NRITrainingParams, NRI
 
 class LearnableStaticVertexEncoding(nn.Module):
     '''
