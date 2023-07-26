@@ -118,6 +118,7 @@ def train(
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
 
     for epoch in range(n_epoch):
+        '''
         #region train
         train_mse: list[float] = []
         train_kl: list[float] = []
@@ -156,6 +157,9 @@ def train(
         val_nll: list[float] = []
 
         for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, valid', total=len(val_loader), disable=silent):
+            if cuda:
+                data = data.cuda()
+
             pred, logits = model(data, data.size(1) - 1, rand=True)
             target = data[:, 1:, :, :]
 
@@ -186,13 +190,15 @@ def train(
                 sep='\n'
             )
         #endregion
+        '''
+        val_nll = 1
 
         # checkpoint
         if checkpoint_params:
-            if epoch > 0 and not epoch % checkpoint_params.checkpt_int:
+            if epoch > 0 and epoch % checkpoint_params.checkpt_int == 0:
                 torch.save(model.state_dict(), checkpoint_params.get_checkpt_fname(epoch))
                 torch.save(optimizer.state_dict(), checkpoint_params.get_checkpt_fname(epoch, 'optim'))
-                torch.save(lr_scheduler.state_dict(), checkpoint_params.get_best_fname(epoch, 'lr'))
+                torch.save(lr_scheduler.state_dict(), checkpoint_params.get_checkpt_fname(epoch, 'lr'))
 
             if val_nll < current_best:
                 current_best = val_nll
@@ -205,8 +211,6 @@ if __name__ == '__main__':
     import sys
     sys.path.insert(0, '..')
 
-    from models.nri import NRI
-    from models.nri_PE import NRIWithPE
     from models.grand import GraNRI
     from data.dataset import MotionDataset, create_split
 
@@ -220,15 +224,15 @@ if __name__ == '__main__':
         shuffle=np.random.default_rng(123).shuffle # set seed to create same split
     )
 
-    train_set = MotionDataset(seq_len=50, fids=train_set[0:1], dir=DATASET_DIR)
-    val_set = MotionDataset(seq_len=50, fids=val_set[0:1], dir=DATASET_DIR)
-    test_set = MotionDataset(seq_len=100, fids=test_set[0:1], dir=DATASET_DIR, memo=False)
+    train_set = MotionDataset(seq_len=50, fids=train_set, dir=DATASET_DIR)
+    val_set = MotionDataset(seq_len=50, fids=val_set, dir=DATASET_DIR)
+    test_set = MotionDataset(seq_len=100, fids=test_set, dir=DATASET_DIR, memo=False)
 
     adj_mat = torch.ones((31, 31)) - torch.eye(31)
 
-    model = GraNRI(state_dim=6, prior_steps=50, hid_dim=128, adj_mat=adj_mat)
+    checkpt = CheckpointParameters('out/grand', 10)
 
-    #edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
-    edge_prior = torch.tensor([0.25, 0.25, 0.25, 0.25])
+    model = GraNRI(state_dim=6, prior_steps=50, hid_dim=256, adj_mat=adj_mat)
 
-    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior)
+    edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
+    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior, checkpoint_params=checkpt)
