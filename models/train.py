@@ -207,7 +207,7 @@ def train(
         
         # checkpoint
         if checkpoint_params:
-            if epoch % checkpoint_params.checkpt_int == 0:
+            if epoch > 0 and epoch % checkpoint_params.checkpt_int == 0:
                 prefix = checkpoint_params.get_checkpt_fname(epoch)
 
                 torch.save(model.state_dict(), f'{prefix}.model.pt')
