@@ -60,7 +60,11 @@ class GraNDDecoder(RNNDecoderWithPE):
     ) -> tuple[torch.Tensor, torch.Tensor]:
 
         start_idx = int(not self.skip_first_edge_type)
+
         diffusivity = torch.zeros((hidden.size(0), hidden.size(1), hidden.size(1)))
+
+        if inputs.is_cuda:
+            diffusivity = diffusivity.cuda()
 
         # Run separate MLP for every edge type
         for i in range(start_idx, len(self.msg_fc2)):
@@ -71,20 +75,23 @@ class GraNDDecoder(RNNDecoderWithPE):
 
         #attention = F.softmax(attention, dim=-1)
 
-        node_embeddings = torch.zeros_like(hidden)
 
-        for b in range(hidden.size(0)):
-            self.ode_x0 = hidden[b, :].clone().detach_()
-            self.ode_attention = diffusivity[b, :]
+        self.ode_x0 = hidden.clone().detach_()
+        self.ode_attention = diffusivity
 
-            node_embeddings[b, :] = odeint(
-                self.ode,
-                hidden[b, :],
-                torch.tensor([0., 1.]),
-                method='dopri5',
-                rtol=1e-3,
-                atol=1e-6
-            )[1]
+        t = torch.tensor([0., 1.])
+
+        if inputs.is_cuda:
+            t = t.cuda()
+
+        node_embeddings = odeint(
+            self.ode,
+            hidden,
+            t,
+            method='dopri5',
+            rtol=1e-3,
+            atol=1e-6
+        )[1]
 
         node_embeddings = F.relu(node_embeddings)
 
@@ -122,6 +129,9 @@ class GraNDDecoder(RNNDecoderWithPE):
 
         # scale by 1 / sqrt(d) to compute scaled dot-product attention
         self.adj_tensor = adj_tensor * self.n_hid ** -0.5
+
+        if data.is_cuda:
+            self.adj_tensor = self.adj_tensor.cuda()
 
         return super().forward(data, rel_type, pred_steps, hidden, train_params)
 

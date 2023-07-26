@@ -59,7 +59,7 @@ class CheckpointParameters:
         self.path = path
         self.checkpt_int = checkpt_int
 
-    def get_checkpt_fname(self, epoch: int) -> str:
+    def get_checkpt_fname(self, epoch: int, suffix: str = '') -> str:
         '''
         get checkpoint filename
 
@@ -67,7 +67,10 @@ class CheckpointParameters:
         ---
         - epoch
         '''
-        return f'{self.path}/checkpt_{epoch}.pt'
+        if not suffix:
+            return f'{self.path}/checkpt_{epoch}.pt'
+        else:
+            return f'{self.path}/checkpt_{epoch}.{suffix}.pt'
     
     def get_best_fname(self) -> str:
         '''
@@ -85,6 +88,7 @@ def train(
     optimizer: optim.Optimizer = None,
     lr_scheduler: optim.lr_scheduler.LRScheduler = None,
     silent: bool = False,
+    cuda: bool = False
 ):
     '''
     train model
@@ -125,6 +129,9 @@ def train(
         optimizer.zero_grad()
 
         for idx, data in tqdm(enumerate(train_loader), desc=f'Epoch: {epoch}, train', total=len(train_loader), disable=silent):
+            if cuda:
+                data = data.cuda()
+
             pred, logits = model(data, data.size(1) - 1, train_params=train_params)
             target = data[:, 1:, :, :]
             
@@ -184,6 +191,8 @@ def train(
         if checkpoint_params:
             if epoch > 0 and not epoch % checkpoint_params.checkpt_int:
                 torch.save(model.state_dict(), checkpoint_params.get_checkpt_fname(epoch))
+                torch.save(optimizer.state_dict(), checkpoint_params.get_checkpt_fname(epoch, 'optim'))
+                torch.save(lr_scheduler.state_dict(), checkpoint_params.get_best_fname(epoch, 'lr'))
 
             if val_nll < current_best:
                 current_best = val_nll
@@ -218,6 +227,7 @@ if __name__ == '__main__':
     adj_mat = torch.ones((31, 31)) - torch.eye(31)
 
     model = GraNRI(state_dim=6, prior_steps=50, hid_dim=128, adj_mat=adj_mat)
+
     #edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
     edge_prior = torch.tensor([0.25, 0.25, 0.25, 0.25])
 

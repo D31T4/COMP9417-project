@@ -141,6 +141,7 @@ class MLPEncoder(nn.Module):
         self.init_weights()
 
         self.send_edges, self.recv_edges, self.edge_weights = compute_graph_stats(adj_mat)
+        self.edge_weights = nn.Parameter(self.edge_weights, requires_grad=False)
 
     def init_weights(self):
         for m in self.modules():
@@ -269,6 +270,7 @@ class RNNDecoder(nn.Module):
         self.dropout_prob = do_prob
 
         self.send_edges, self.recv_edges, self.edge_weights = compute_graph_stats(adj_mat)
+        self.edge_weights = nn.Parameter(self.edge_weights, requires_grad=False)
 
     def single_step_forward(
         self, 
