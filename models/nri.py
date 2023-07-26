@@ -361,7 +361,7 @@ class RNNDecoder(nn.Module):
         pred_all = []
 
         for step in range(0, pred_steps):
-            if step == 0 or (self.training and train_params and not step % train_params.ground_truth_interval):
+            if step == 0 or (self.training and train_params and step % train_params.ground_truth_interval == 0):
                 ins = data[:, step, :]
             else:
                 ins = pred_all[-1]

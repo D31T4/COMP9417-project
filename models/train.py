@@ -24,7 +24,7 @@ def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     - KL divergence
     '''
     ls = preds * (torch.log(preds + eps) - log_p)
-    return ls.sum() / (preds.size(0) * preds.size(1))
+    return ls.mean()
 
 def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tensor = 5e-5):
     '''
@@ -43,7 +43,7 @@ def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tens
     - nll
     '''
     ls = ((preds - target) ** 2) / (2 * variance)
-    return ls.sum() / (target.size(0) * target.size(1))
+    return ls.mean()
 
 class CheckpointParameters:
     '''
@@ -103,6 +103,7 @@ def train(
     '''
     # current min validation loss
     current_best = float('inf')
+    NLL_VAR = 5e-5
 
     edge_prior = torch.log(edge_prior)
 
@@ -131,9 +132,10 @@ def train(
         epoch_start = time.time()
 
         model.train()
-        optimizer.zero_grad()
 
-        for idx, data in tqdm(enumerate(train_loader), desc=f'Epoch: {epoch}, train', total=len(train_loader), disable=silent):
+        for idx, data in (pbar := tqdm(enumerate(train_loader), desc=f'[train] Epoch {epoch}', total=len(train_loader), disable=silent)):
+            optimizer.zero_grad()
+            
             if cuda:
                 data = data.cuda()
 
@@ -141,38 +143,23 @@ def train(
             target = data[:, 1:, :, :]
             
             loss_kl = kl_categorial(F.softmax(logits, dim=-1), edge_prior)
-            loss_nll = nll_gaussian(pred, target)
+            loss_nll = nll_gaussian(pred, target, variance=NLL_VAR)
             loss = loss_nll + loss_kl
 
             loss.backward()
             optimizer.step()
 
-            train_mse.append(F.mse_loss(pred, target).item())
+            mse = F.mse_loss(pred, target)
+
+            train_mse.append(mse.item())
             train_nll.append(loss_nll.item())
             train_kl.append(loss_kl.item())
+
+            pbar.set_description(f'[train] Epoch {epoch}; loss: {loss.item()}')
             
         lr_scheduler.step()
         model.eval()
-        #endregion
-        
-        #region val
-        val_mse: list[float] = []
-        val_kl: list[float] = []
-        val_nll: list[float] = []
 
-        for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, valid', total=len(val_loader), disable=silent):
-            if cuda:
-                data = data.cuda()
-
-            pred, logits = model(data, data.size(1) - 1, rand=True)
-            target = data[:, 1:, :, :]
-
-            val_mse.append(F.mse_loss(pred, target).item())
-            val_nll.append(nll_gaussian(pred, target).item())
-            val_kl.append(kl_categorial(F.softmax(logits, dim=-1), edge_prior).item())
-        #endregion
-
-        #region log metrics
         train_kl = np.mean(train_kl)
         all_train_kl.append(train_kl)
 
@@ -181,7 +168,41 @@ def train(
 
         train_mse = np.mean(train_mse)
         all_train_mse.append(train_mse)
+
+        if not silent:
+            print(
+                '[train] Epoch: {:04d}'.format(epoch),
+                '          NLL: {:.10f}'.format(train_nll),
+                '           KL: {:.10f}'.format(train_kl),
+                '          MSE: {:.10f}'.format(train_mse),
+                '      Elapsed: {:.4f}s'.format(time.time() - epoch_start),
+                sep='\n'
+            )
+        #endregion
         
+        #region val
+        val_mse: list[float] = []
+        val_kl: list[float] = []
+        val_nll: list[float] = []
+
+        for idx, data in (pbar := tqdm(enumerate(val_loader), desc=f'[valid] Ep {epoch}.', total=len(val_loader), disable=silent)):
+            if cuda:
+                data = data.cuda()
+
+            pred, logits = model(data, data.size(1) - 1, rand=True)
+            target = data[:, 1:, :, :]
+
+            loss_nll = nll_gaussian(pred, target, variance=NLL_VAR)
+            loss_kl = kl_categorial(F.softmax(logits, dim=-1), edge_prior)
+
+            mse = F.mse_loss(pred, target)
+
+            val_mse.append(mse.item())
+            val_nll.append(loss_nll.item())
+            val_kl.append(loss_kl.item())
+
+            #pbar.set_description(f'[valid] Ep {epoch}. NLL: {loss_nll.item():.2f}, KL: {loss_kl.item():.2f}, MSE: {mse.item():.2f}')
+     
         val_kl = np.mean(val_kl)
         all_valid_kl.append(val_kl)
 
@@ -193,21 +214,18 @@ def train(
 
         if not silent:
             print(
-                'Epoch: {:04d}'.format(epoch),
-                'nll train: {:.10f}'.format(train_nll),
-                ' kl train: {:.10f}'.format(train_kl),
-                'mse train: {:.10f}'.format(train_mse),
-                'nll valid: {:.10f}'.format(val_nll),
-                ' kl valid: {:.10f}'.format(val_kl),
-                'mse valid: {:.10f}'.format(val_mse),
-                '  elapsed: {:.4f}s'.format(time.time() - epoch_start),
+                '[valid] Epoch: {:04d}'.format(epoch),
+                '          NLL: {:.10f}'.format(val_nll),
+                '           KL: {:.10f}'.format(val_kl),
+                '          MSE: {:.10f}'.format(val_mse),
+                '      Elapsed: {:.4f}s'.format(time.time() - epoch_start),
                 sep='\n'
             )
         #endregion
         
         # checkpoint
         if checkpoint_params:
-            if epoch > 0 and epoch % checkpoint_params.checkpt_int == 0:
+            if epoch % checkpoint_params.checkpt_int == 0:
                 prefix = checkpoint_params.get_checkpt_fname(epoch)
 
                 torch.save(model.state_dict(), f'{prefix}.model.pt')
@@ -234,7 +252,7 @@ if __name__ == '__main__':
     import sys
     sys.path.insert(0, '..')
 
-    from models.grand import GraNRI
+    from models.grand import NRI
     from data.dataset import MotionDataset, create_split
 
     DATASET_DIR = '../data/pt'
@@ -255,7 +273,8 @@ if __name__ == '__main__':
 
     checkpt = CheckpointParameters('out/grand', 10)
 
-    model = GraNRI(state_dim=6, prior_steps=50, hid_dim=256, adj_mat=adj_mat)
+    model = NRI(state_dim=6, prior_steps=50, hid_dim=64, adj_mat=adj_mat)
 
     edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
-    train(model, n_epoch=1, datasets=(train_set, val_set, test_set), edge_prior=edge_prior, checkpoint_params=checkpt)
+
+    train(model, n_epoch=2, datasets=(train_set, val_set, test_set), edge_prior=edge_prior, checkpoint_params=checkpt)
