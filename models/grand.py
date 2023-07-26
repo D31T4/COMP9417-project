@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchdiffeq import odeint
 
-from nri_PE import MLPEncoderWithPE, RNNDecoderWithPE, NRI
+from .nri_PE import MLPEncoderWithPE, RNNDecoderWithPE, NRI
 
 class GraNDDecoder(RNNDecoderWithPE):
     '''
@@ -40,7 +40,7 @@ class GraNDDecoder(RNNDecoderWithPE):
     def ode(self, t, x: torch.Tensor):
         '''
         diffusion equation.
-        
+
         stolen from https://github.com/twitter-research/graph-neural-pde/blob/main/src/function_laplacian_diffusion.py
 
         Arguments:
