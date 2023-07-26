@@ -59,7 +59,7 @@ class CheckpointParameters:
         self.path = path
         self.checkpt_int = checkpt_int
 
-    def get_checkpt_fname(self, epoch: int, suffix: str = '') -> str:
+    def get_checkpt_fname(self, epoch: int) -> str:
         '''
         get checkpoint filename
 
@@ -67,16 +67,13 @@ class CheckpointParameters:
         ---
         - epoch
         '''
-        if not suffix:
-            return f'{self.path}/checkpt_{epoch}.pt'
-        else:
-            return f'{self.path}/checkpt_{epoch}.{suffix}.pt'
+        return f'{self.path}/checkpt_{epoch}'
     
     def get_best_fname(self) -> str:
         '''
         get best model filename
         '''
-        return f'{self.path}/best.pt'
+        return f'{self.path}/best'
 
 def train(
     model: nn.Module, 
@@ -116,6 +113,14 @@ def train(
 
     if lr_scheduler is None:
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
+
+    all_train_mse: list[float] = []
+    all_train_kl: list[float] = []
+    all_train_nll: list[float] = []
+
+    all_valid_mse: list[float] = []
+    all_valid_kl: list[float] = []
+    all_valid_nll: list[float] = []
 
     for epoch in range(n_epoch):
         #region train
@@ -169,12 +174,22 @@ def train(
 
         #region log metrics
         train_kl = np.mean(train_kl)
+        all_train_kl.append(train_kl)
+
         train_nll = np.mean(train_nll)
+        all_train_nll.append(train_nll)
+
         train_mse = np.mean(train_mse)
+        all_train_mse.append(train_mse)
         
         val_kl = np.mean(val_kl)
+        all_valid_kl.append(val_kl)
+
         val_nll = np.mean(val_nll)
+        all_valid_nll.append(val_nll)
+
         val_mse = np.mean(val_mse)
+        all_valid_mse.append(val_mse)
 
         if not silent:
             print(
@@ -190,18 +205,27 @@ def train(
             )
         #endregion
         
-        val_nll = 1
-
         # checkpoint
         if checkpoint_params:
             if epoch > 0 and epoch % checkpoint_params.checkpt_int == 0:
-                torch.save(model.state_dict(), checkpoint_params.get_checkpt_fname(epoch))
-                torch.save(optimizer.state_dict(), checkpoint_params.get_checkpt_fname(epoch, 'optim'))
-                torch.save(lr_scheduler.state_dict(), checkpoint_params.get_checkpt_fname(epoch, 'lr'))
+                prefix = checkpoint_params.get_checkpt_fname(epoch)
+
+                torch.save(model.state_dict(), f'{prefix}.model.pt')
+                torch.save(optimizer.state_dict(), f'{prefix}.optim.pt')
+                torch.save(lr_scheduler.state_dict(), f'{prefix}.lr.pt')
+
+                np.save(f'{prefix}.loss.npy', {
+                    'train_kl': all_train_kl,
+                    'train_nll': all_train_nll,
+                    'train_mse': all_train_mse,
+                    'valid_kl': all_valid_kl,
+                    'valid_nll': all_valid_nll,
+                    'valid_mse': all_valid_mse
+                }, allow_pickle=True)
 
             if val_nll < current_best:
                 current_best = val_nll
-                torch.save(model.state_dict(), checkpoint_params.get_best_fname())
+                torch.save(model.state_dict(), f'{checkpoint_params.get_best_fname()}.pt')
 
     # TODO: output test result
 
