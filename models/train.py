@@ -118,7 +118,6 @@ def train(
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
 
     for epoch in range(n_epoch):
-        '''
         #region train
         train_mse: list[float] = []
         train_kl: list[float] = []
@@ -190,7 +189,7 @@ def train(
                 sep='\n'
             )
         #endregion
-        '''
+        
         val_nll = 1
 
         # checkpoint
