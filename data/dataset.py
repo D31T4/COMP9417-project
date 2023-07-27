@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import os
+import math
 from collections.abc import Callable
 
 def normalize(x: torch.Tensor, xmin: float, xmax: float):
@@ -73,7 +74,7 @@ class MotionDataset(Dataset[torch.Tensor]):
             coords: torch.Tensor = self._read_from_disc(i)
 
             # sample subsequence
-            coords = coords[(j + 1):(j + 1 + self.seq_len)]
+            coords = coords[j:(j + 1 + self.seq_len)]
 
             pos = normalize(coords[1:], *self.loc_span)
             vel = normalize(coords[1:] - coords[:-1], *self.vel_span)
@@ -105,18 +106,27 @@ class MotionDataset(Dataset[torch.Tensor]):
 
         index: list[tuple[int, int]] = []
 
-        for i, fid in enumerate(self.fids):
-            coords: torch.Tensor = torch.load(f'{self.dir}/{fid}.pt')
+        for fname in os.listdir(self.dir):
+            if fname.endswith('.adjmat.pt'): continue
+
+            coords: torch.Tensor = torch.load(f'{self.dir}/{fname}')
             pos = coords[1:]
             vel = coords[1:] - coords[:-1]
 
-            loc_min = min(loc_min, torch.min(pos))
-            loc_max = max(loc_max, torch.max(pos))
-            vel_min = min(vel_min, torch.min(vel))
-            vel_max = max(vel_max, torch.max(vel))
+            loc_min = min(loc_min, pos.min().item())
+            loc_max = max(loc_max, pos.max().item())
+            vel_min = min(vel_min, vel.min().item())
+            vel_max = max(vel_max, vel.max().item())
+
+        for i, fid in enumerate(self.fids):
+            coords: torch.Tensor = torch.load(f'{self.dir}/{fid}.pt')
 
             for j in range(0, coords.shape[0] - self.seq_len - 1):
                 index.append((i, j))
+
+        assert loc_min != loc_max and math.isfinite(loc_min) and math.isfinite(loc_max) and not math.isnan(loc_min) and not math.isnan(loc_max)
+        assert vel_min != vel_max and math.isfinite(vel_min) and math.isfinite(vel_max) and not math.isnan(vel_min) and not math.isnan(vel_max)
+        assert len(index) > 0
 
         self.loc_span = (loc_min, loc_max)
         self.vel_span = (vel_min, vel_max)
@@ -175,4 +185,6 @@ if __name__ == '__main__':
     print(train_ids)
 
     dataset = MotionDataset(50, train_ids, 'pt')
-    print(dataset[0].shape)
+
+    for i in range(len(dataset)):
+        assert dataset[i].shape == (50, 31, 6)

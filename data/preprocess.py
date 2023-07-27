@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+from tqdm import tqdm
 from shutil import rmtree
 from typing import Union
 
@@ -493,7 +494,7 @@ class AMCParser:
 
         return ln
 
-def preprocess(inputDir: str, outputDir: str):
+def preprocess(inputDir: str, outputDir: str, silent: bool = False):
     '''
     preprocess dataset
 
@@ -537,7 +538,7 @@ def preprocess(inputDir: str, outputDir: str):
     #endregion
     
     #region parse .amc
-    for filename in paths:
+    for filename in tqdm(paths, total=len(paths), disable=silent):
         if not filename.endswith('.amc.txt'):
             continue
 
