@@ -141,6 +141,8 @@ class MLPEncoder(nn.Module):
         self.init_weights()
 
         self.send_edges, self.recv_edges, self.edge_weights = compute_graph_stats(adj_mat)
+        self.send_edges = nn.Parameter(self.send_edges, requires_grad=False)
+        self.recv_edges = nn.Parameter(self.recv_edges, requires_grad=False)
         self.edge_weights = nn.Parameter(self.edge_weights, requires_grad=False)
 
     def init_weights(self):
@@ -270,6 +272,8 @@ class RNNDecoder(nn.Module):
         self.dropout_prob = do_prob
 
         self.send_edges, self.recv_edges, self.edge_weights = compute_graph_stats(adj_mat)
+        self.send_edges = nn.Parameter(self.send_edges, requires_grad=False)
+        self.recv_edges = nn.Parameter(self.recv_edges, requires_grad=False)
         self.edge_weights = nn.Parameter(self.edge_weights, requires_grad=False)
 
     def single_step_forward(
@@ -415,7 +419,7 @@ class NRI(nn.Module):
         self.gumbel_temp = gumbel_temp
         self.prior_steps = prior_steps
 
-    def forward(self, data: torch.Tensor, pred_steps: int, rand: bool = False, train_params: NRITrainingParams = None):
+    def forward(self, data: torch.Tensor, pred_steps: int, rand: bool = False, train_params: NRITrainingParams = None) -> tuple[torch.Tensor, torch.Tensor]:
         '''
         Arguments:
         ---
@@ -434,7 +438,7 @@ class NRI(nn.Module):
             rel_types = F.gumbel_softmax(logits, tau=self.gumbel_temp, hard=True)
         else:
             rel_types = F.softmax(logits, dim=-1)
-            index = rel_types.max(-1, keepdim=True)
+            index = rel_types.max(-1, keepdim=True)[1]
             rel_types = torch.zeros_like(logits).scatter_(-1, index, 1.0)
 
         out, _ = self.decoder(data, rel_types, pred_steps, train_params=train_params)

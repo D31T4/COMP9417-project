@@ -62,9 +62,11 @@ class GraNDDecoder(RNNDecoderWithPE):
         start_idx = int(not self.skip_first_edge_type)
 
         diffusivity = torch.zeros((hidden.size(0), hidden.size(1), hidden.size(1)))
+        node_embeddings = torch.zeros_like(hidden)
 
         if inputs.is_cuda:
             diffusivity = diffusivity.cuda()
+            node_embeddings = node_embeddings.cuda()
 
         # Run separate MLP for every edge type
         for i in range(start_idx, len(self.msg_fc2)):
@@ -73,25 +75,26 @@ class GraNDDecoder(RNNDecoderWithPE):
 
             diffusivity += torch.matmul(q, k) * self.adj_tensor[:, i, :]
 
-        #attention = F.softmax(attention, dim=-1)
+        diffusivity = F.softmax(diffusivity, dim=-1)
 
-
-        self.ode_x0 = hidden.clone().detach_()
-        self.ode_attention = diffusivity
 
         t = torch.tensor([0., 1.])
 
         if inputs.is_cuda:
             t = t.cuda()
 
-        node_embeddings = odeint(
-            self.ode,
-            hidden,
-            t,
-            method='dopri5',
-            rtol=1e-3,
-            atol=1e-6
-        )[1]
+        for b in range(hidden.size(0)):
+            self.ode_x0 = hidden[b, :].clone().detach_()
+            self.ode_attention = diffusivity[b, :]
+
+            node_embeddings = odeint(
+                self.ode,
+                hidden[b, :],
+                t,
+                method='dopri5',
+                rtol=1e-3,
+                atol=1e-6
+            )[1]
 
         node_embeddings = F.relu(node_embeddings)
 

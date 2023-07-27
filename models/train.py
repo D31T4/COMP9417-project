@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from tqdm import tqdm
 import time
+import os
 
 def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     '''
@@ -24,7 +25,7 @@ def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     - KL divergence
     '''
     ls = preds * (torch.log(preds + eps) - log_p)
-    return ls.mean()
+    return ls.sum() / (ls.size(0) * ls.size(1))
 
 def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tensor = 5e-5):
     '''
@@ -42,8 +43,8 @@ def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tens
     ---
     - nll
     '''
-    ls = ((preds - target) ** 2) / (2 * variance)
-    return ls.mean()
+    ls = torch.square(preds - target) / (2 * variance)
+    return ls.sum() / (ls.size(0) * ls.size(2))
 
 class CheckpointParameters:
     '''
@@ -56,6 +57,7 @@ class CheckpointParameters:
         - path: save dir
         - checkpt_int: checkpoint interval
         '''
+        assert os.path.isdir(path)
         self.path = path
         self.checkpt_int = checkpt_int
 
@@ -85,7 +87,13 @@ def train(
     optimizer: optim.Optimizer = None,
     lr_scheduler: optim.lr_scheduler.LRScheduler = None,
     silent: bool = False,
-    cuda: bool = False
+    cuda: bool = False,
+    all_train_mse: list[float] = [],
+    all_train_kl: list[float] = [],
+    all_train_nll: list[float] = [],
+    all_valid_mse: list[float] = [],
+    all_valid_kl: list[float] = [],
+    all_valid_nll: list[float] = []
 ):
     '''
     train model
@@ -114,16 +122,8 @@ def train(
 
     if lr_scheduler is None:
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
-
-    all_train_mse: list[float] = []
-    all_train_kl: list[float] = []
-    all_train_nll: list[float] = []
-
-    all_valid_mse: list[float] = []
-    all_valid_kl: list[float] = []
-    all_valid_nll: list[float] = []
-
-    for epoch in range(n_epoch):
+    
+    for epoch in range(max(0, lr_scheduler.last_epoch), n_epoch):
         #region train
         train_mse: list[float] = []
         train_kl: list[float] = []
@@ -155,7 +155,7 @@ def train(
             train_nll.append(loss_nll.item())
             train_kl.append(loss_kl.item())
 
-            pbar.set_description(f'[train] Epoch {epoch}; loss: {loss.item()}')
+            pbar.set_description(f'[train] Epoch {epoch}; NLL: {loss_nll.item():.2E}; KL: {loss_kl.item():.2E}')
             
         lr_scheduler.step()
         model.eval()
@@ -185,7 +185,7 @@ def train(
         val_kl: list[float] = []
         val_nll: list[float] = []
 
-        for idx, data in (pbar := tqdm(enumerate(val_loader), desc=f'[valid] Ep {epoch}.', total=len(val_loader), disable=silent)):
+        for idx, data in (pbar := tqdm(enumerate(val_loader), desc=f'[valid] Epoch {epoch}.', total=len(val_loader), disable=silent)):
             if cuda:
                 data = data.cuda()
 
@@ -201,7 +201,7 @@ def train(
             val_nll.append(loss_nll.item())
             val_kl.append(loss_kl.item())
 
-            #pbar.set_description(f'[valid] Ep {epoch}. NLL: {loss_nll.item():.2f}, KL: {loss_kl.item():.2f}, MSE: {mse.item():.2f}')
+            pbar.set_description(f'[valid] Epoch {epoch}; NLL: {loss_nll.item():.2E}; KL: {loss_kl.item():.2E}')
      
         val_kl = np.mean(val_kl)
         all_valid_kl.append(val_kl)
@@ -247,6 +247,53 @@ def train(
 
     # TODO: output test result
 
+def resume(
+    path: str,
+    model: nn.Module, 
+    optimizer: optim.Optimizer,
+    lr_scheduler: optim.lr_scheduler.LRScheduler,
+    n_epoch: int, 
+    datasets: tuple[Dataset, Dataset, Dataset], 
+    edge_prior: torch.Tensor,
+    train_params = None,
+    checkpoint_params: CheckpointParameters = None,
+    silent: bool = False,
+    cuda: bool = False
+):
+    model.load_state_dict(torch.load(f'{path}.model.pt'))
+    optimizer.load_state_dict(torch.load(f'{path}.optim.pt'))
+    lr_scheduler.load_state_dict(torch.load(f'{path}.lr.pt'))
+
+    all_loss = np.load(f'{path}.loss.npy', allow_pickle=True)
+
+    all_train_mse: list[float] = all_loss['train_mse']
+    all_train_kl: list[float] = all_loss['train_kl']
+    all_train_nll: list[float] = all_loss['train_nll']
+
+    all_valid_mse: list[float] = all_loss['valid_mse']
+    all_valid_kl: list[float] = all_loss['valid_kl']
+    all_valid_nll: list[float] = all_loss['valid_nll']
+
+    train(
+        model,
+        n_epoch,
+        datasets,
+        edge_prior,
+        train_params,
+        checkpoint_params,
+        optimizer,
+        lr_scheduler,
+        silent,
+        cuda,
+        all_train_mse,
+        all_train_kl,
+        all_train_nll,
+        all_valid_mse,
+        all_valid_kl,
+        all_valid_nll
+    )
+
+
 if __name__ == '__main__':
     # run test
     import sys
@@ -258,7 +305,7 @@ if __name__ == '__main__':
     DATASET_DIR = '../data/pt'
 
     train_set, val_set, test_set = create_split(
-        '../data/pt', 
+        DATASET_DIR, 
         num_train=12, 
         num_val=4, 
         num_test=7, 
