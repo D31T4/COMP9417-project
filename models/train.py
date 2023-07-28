@@ -6,14 +6,10 @@ from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from tqdm import tqdm
 import time
-import os
-from collections.abc import Callable
 
 def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     '''
     categorical KL-divergence
-    
-    stolen from: https://github.com/ethanfetaya/NRI/blob/master/utils.py
 
     Arguments:
     ---
@@ -26,13 +22,11 @@ def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     - KL divergence
     '''
     ls = preds * (torch.log(preds + eps) - log_p)
-    return ls.sum() / (ls.size(0) * ls.size(1))
+    return ls.sum() / (preds.size(0) * preds.size(1))
 
 def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tensor = 5e-5):
     '''
     gaussian negative log likelihood
-
-    stolen from: https://github.com/ethanfetaya/NRI/blob/master/utils.py
 
     Arguments:
     ---
@@ -44,56 +38,38 @@ def nll_gaussian(preds: torch.Tensor, target: torch.Tensor, variance: torch.Tens
     ---
     - nll
     '''
-    ls = torch.square(preds - target) / (2 * variance)
-    return ls.sum() / (ls.size(0) * ls.size(2))
+    ls = ((preds - target) ** 2) / (2 * variance)
+    return ls.sum() / (target.size(0) * target.size(1))
 
 class CheckpointParameters:
     '''
     model checkpoint parameters
     '''
-    def __init__(self, path: str, checkpt_int: int, onCheckpoint: Callable[[str], None] = None):
+    def __init__(self, path: str, checkpt_int: int):
         '''
         Arguments:
         ---
         - path: save dir
         - checkpt_int: checkpoint interval
-        - onCheckpoint: checkpoint event. called after checkpoint.
         '''
-        assert os.path.isdir(path)
         self.path = path
         self.checkpt_int = checkpt_int
-        self.onCheckpoint = onCheckpoint
 
-    def checkpoint(
-            self, 
-            epoch: int,
-            model: nn.Module,
-            optimizer: torch.optim.Optimizer,
-            lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-            loss: any
-        ):
+    def get_checkpt_fname(self, epoch: int) -> str:
         '''
-        checkpoint
+        get checkpoint filename
 
         Arguments:
         ---
         - epoch
         '''
-        prefix = f'{self.path}/checkpt_{epoch}'
-
-        torch.save(model.state_dict(), f'{prefix}.model.pt')
-        torch.save(optimizer.state_dict(), f'{prefix}.optim.pt')
-        torch.save(lr_scheduler.state_dict(), f'{prefix}.lr.pt')
-        np.save(f'{prefix}.loss.npy', loss, allow_pickle=True)
-
-        if self.onCheckpoint:
-            self.onCheckpoint(prefix)
+        return f'{self.path}/checkpt_{epoch}.pt'
     
     def get_best_fname(self) -> str:
         '''
         get best model filename
         '''
-        return f'{self.path}/best'
+        return f'{self.path}/best.pt'
 
 def train(
     model: nn.Module, 
@@ -103,15 +79,8 @@ def train(
     train_params = None,
     checkpoint_params: CheckpointParameters = None,
     optimizer: optim.Optimizer = None,
-    lr_scheduler: optim.lr_scheduler.LRScheduler = None,
-    silent: bool = False,
-    cuda: bool = False,
-    all_train_mse: list[float] = [],
-    all_train_kl: list[float] = [],
-    all_train_nll: list[float] = [],
-    all_valid_mse: list[float] = [],
-    all_valid_kl: list[float] = [],
-    all_valid_nll: list[float] = []
+    lr_scheduler: optim.lr_scheduler._LRScheduler = None,
+    silent: bool = False
 ):
     '''
     train model
@@ -129,19 +98,18 @@ def train(
     '''
     # current min validation loss
     current_best = float('inf')
-    NLL_VAR = 5e-5
 
     edge_prior = torch.log(edge_prior)
 
     train_loader, val_loader, test_loader = [DataLoader(dataset, batch_size=8, shuffle=True) for dataset in datasets]
 
     if optimizer is None:
-        optimizer = optim.Adam(list(model.parameters()), lr=5e-3)
+        optimizer = optim.Adam(list(model.parameters()), lr=0.0005)
 
     if lr_scheduler is None:
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
-    
-    for epoch in range(max(0, lr_scheduler.last_epoch), n_epoch):
+
+    for epoch in range(n_epoch):
         #region train
         train_mse: list[float] = []
         train_kl: list[float] = []
@@ -150,198 +118,101 @@ def train(
         epoch_start = time.time()
 
         model.train()
+        optimizer.zero_grad()
 
-        for idx, data in (pbar := tqdm(enumerate(train_loader), desc=f'[train] Epoch {epoch}', total=len(train_loader), disable=silent)):
-            optimizer.zero_grad()
-            
-            if cuda:
-                data = data.cuda()
-
+        for idx, data in tqdm(enumerate(train_loader), desc=f'Epoch: {epoch}, train', total=len(train_loader), disable=silent):
             pred, logits = model(data, data.size(1) - 1, train_params=train_params)
             target = data[:, 1:, :, :]
             
-            loss_kl = kl_categorial(F.softmax(logits, dim=-1), edge_prior)
-            loss_nll = nll_gaussian(pred, target, variance=NLL_VAR)
+            loss_kl = kl_categorial(logits, edge_prior)
+            loss_nll = nll_gaussian(pred, target)
+            
             loss = loss_nll + loss_kl
-
             loss.backward()
             optimizer.step()
 
-            mse = F.mse_loss(pred, target)
-
-            train_mse.append(mse.item())
+            train_mse.append(F.mse_loss(pred, target).item())
             train_nll.append(loss_nll.item())
             train_kl.append(loss_kl.item())
-
-            pbar.set_description(f'[train] Epoch {epoch}; NLL: {loss_nll.item():.2E}; KL: {loss_kl.item():.2E}')
             
         lr_scheduler.step()
         model.eval()
-
-        train_kl = np.mean(train_kl)
-        all_train_kl.append(train_kl)
-
-        train_nll = np.mean(train_nll)
-        all_train_nll.append(train_nll)
-
-        train_mse = np.mean(train_mse)
-        all_train_mse.append(train_mse)
-
-        if not silent:
-            print(
-                '[train] Epoch: {:04d}'.format(epoch),
-                '          NLL: {:.10f}'.format(train_nll),
-                '           KL: {:.10f}'.format(train_kl),
-                '          MSE: {:.10f}'.format(train_mse),
-                '      Elapsed: {:.4f}s'.format(time.time() - epoch_start),
-                sep='\n'
-            )
         #endregion
         
         #region val
-        epoch_start = time.time()
-        
         val_mse: list[float] = []
         val_kl: list[float] = []
         val_nll: list[float] = []
 
-        for idx, data in (pbar := tqdm(enumerate(val_loader), desc=f'[valid] Epoch {epoch}.', total=len(val_loader), disable=silent)):
-            if cuda:
-                data = data.cuda()
-
+        for idx, data in tqdm(enumerate(val_loader), desc=f'Epoch: {epoch}, validation', total=len(val_loader), disable=silent):
             pred, logits = model(data, data.size(1) - 1, rand=True)
             target = data[:, 1:, :, :]
 
-            loss_nll = nll_gaussian(pred, target, variance=NLL_VAR)
-            loss_kl = kl_categorial(F.softmax(logits, dim=-1), edge_prior)
+            val_mse.append(F.mse_loss(pred, target).item())
+            val_nll.append(nll_gaussian(pred, target).item())
+            val_kl.append(kl_categorial(logits, edge_prior).item())
+        #endregion
 
-            mse = F.mse_loss(pred, target)
-
-            val_mse.append(mse.item())
-            val_nll.append(loss_nll.item())
-            val_kl.append(loss_kl.item())
-
-            pbar.set_description(f'[valid] Epoch {epoch}; NLL: {loss_nll.item():.2E}; KL: {loss_kl.item():.2E}')
-     
+        #region log metrics
+        train_kl = np.mean(train_kl)
+        train_nll = np.mean(train_nll)
+        train_mse = np.mean(train_mse)
+        
         val_kl = np.mean(val_kl)
-        all_valid_kl.append(val_kl)
-
         val_nll = np.mean(val_nll)
-        all_valid_nll.append(val_nll)
-
         val_mse = np.mean(val_mse)
-        all_valid_mse.append(val_mse)
 
         if not silent:
             print(
-                '[valid] Epoch: {:04d}'.format(epoch),
-                '          NLL: {:.10f}'.format(val_nll),
-                '           KL: {:.10f}'.format(val_kl),
-                '          MSE: {:.10f}'.format(val_mse),
-                '      Elapsed: {:.4f}s'.format(time.time() - epoch_start),
+                'Epoch: {:04d}'.format(epoch),
+                'nll_train: {:.10f}'.format(train_nll),
+                'kl_train: {:.10f}'.format(train_kl),
+                'mse_train: {:.10f}'.format(train_mse),
+                'nll_val: {:.10f}'.format(val_nll),
+                'kl_val: {:.10f}'.format(val_kl),
+                'mse_val: {:.10f}'.format(val_mse),
+                'elapsed: {:.4f}s'.format(time.time() - epoch_start),
                 sep='\n'
             )
         #endregion
-        
+
         # checkpoint
         if checkpoint_params:
-            if epoch % checkpoint_params.checkpt_int == 0:
-                checkpoint_params.checkpoint(
-                    epoch,
-                    model,
-                    optimizer,
-                    lr_scheduler,
-                    {
-                        'train_kl': all_train_kl,
-                        'train_nll': all_train_nll,
-                        'train_mse': all_train_mse,
-                        'valid_kl': all_valid_kl,
-                        'valid_nll': all_valid_nll,
-                        'valid_mse': all_valid_mse
-                    }
-                )
+            if epoch > 0 and not epoch % checkpoint_params.checkpt_int:
+                torch.save(model.state_dict(), checkpoint_params.get_checkpt_fname(epoch))
 
             if val_nll < current_best:
                 current_best = val_nll
-                torch.save(model.state_dict(), f'{checkpoint_params.get_best_fname()}.pt')
+                torch.save(model.state_dict(), checkpoint_params.get_best_fname())
 
     # TODO: output test result
-
-def resume(
-    path: str,
-    model: nn.Module, 
-    optimizer: optim.Optimizer,
-    lr_scheduler: optim.lr_scheduler.LRScheduler,
-    n_epoch: int, 
-    datasets: tuple[Dataset, Dataset, Dataset], 
-    edge_prior: torch.Tensor,
-    train_params = None,
-    checkpoint_params: CheckpointParameters = None,
-    silent: bool = False,
-    cuda: bool = False
-):
-    model.load_state_dict(torch.load(f'{path}.model.pt'))
-    optimizer.load_state_dict(torch.load(f'{path}.optim.pt'))
-    lr_scheduler.load_state_dict(torch.load(f'{path}.lr.pt'))
-
-    all_loss = np.load(f'{path}.loss.npy', allow_pickle=True)
-
-    all_train_mse: list[float] = all_loss['train_mse']
-    all_train_kl: list[float] = all_loss['train_kl']
-    all_train_nll: list[float] = all_loss['train_nll']
-
-    all_valid_mse: list[float] = all_loss['valid_mse']
-    all_valid_kl: list[float] = all_loss['valid_kl']
-    all_valid_nll: list[float] = all_loss['valid_nll']
-
-    train(
-        model,
-        n_epoch,
-        datasets,
-        edge_prior,
-        train_params,
-        checkpoint_params,
-        optimizer,
-        lr_scheduler,
-        silent,
-        cuda,
-        all_train_mse,
-        all_train_kl,
-        all_train_nll,
-        all_valid_mse,
-        all_valid_kl,
-        all_valid_nll
-    )
-
 
 if __name__ == '__main__':
     # run test
     import sys
     sys.path.insert(0, '..')
 
-    from models.grand import NRI
+    from models.nri import NRI
     from data.dataset import MotionDataset, create_split
+    from models.tf import NRItf
 
     DATASET_DIR = '../data/pt'
 
     train_set, val_set, test_set = create_split(
-        DATASET_DIR, 
+        '../data/pt', 
         num_train=12, 
         num_val=4, 
         num_test=7, 
         shuffle=np.random.default_rng(123).shuffle # set seed to create same split
     )
 
-    train_set = MotionDataset(seq_len=50, fids=train_set, dir=DATASET_DIR)
-    val_set = MotionDataset(seq_len=50, fids=val_set, dir=DATASET_DIR)
-    test_set = MotionDataset(seq_len=100, fids=test_set, dir=DATASET_DIR, memo=False)
+    train_set = MotionDataset(seq_len=50, fids=train_set[0:1], dir=DATASET_DIR)
+    val_set = MotionDataset(seq_len=50, fids=val_set[0:1], dir=DATASET_DIR)
+    test_set = MotionDataset(seq_len=100, fids=test_set[0:1], dir=DATASET_DIR, memo=False)
 
     adj_mat = torch.ones((31, 31)) - torch.eye(31)
 
-    checkpt = CheckpointParameters('out/grand', 10)
-
-    model = NRI(state_dim=6, prior_steps=50, hid_dim=64, adj_mat=adj_mat)
-
+    model = NRI(state_dim=6, prior_steps=50, adj_mat=adj_mat)
     edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
 
-    train(model, n_epoch=2, datasets=(train_set, val_set, test_set), edge_prior=edge_prior, checkpoint_params=checkpt)
+    train(model, n_epoch=30, datasets=(train_set, val_set, test_set), edge_prior=edge_prior)
