@@ -7,6 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import time
 import os
+from collections.abc import Callable
 
 def kl_categorial(preds: torch.Tensor, log_p: torch.Tensor, eps: float = 1e-16):
     '''
@@ -50,26 +51,43 @@ class CheckpointParameters:
     '''
     model checkpoint parameters
     '''
-    def __init__(self, path: str, checkpt_int: int):
+    def __init__(self, path: str, checkpt_int: int, onCheckpoint: Callable[[str], None] = None):
         '''
         Arguments:
         ---
         - path: save dir
         - checkpt_int: checkpoint interval
+        - onCheckpoint: checkpoint event. called after checkpoint.
         '''
         assert os.path.isdir(path)
         self.path = path
         self.checkpt_int = checkpt_int
+        self.onCheckpoint = onCheckpoint
 
-    def get_checkpt_fname(self, epoch: int) -> str:
+    def checkpoint(
+            self, 
+            epoch: int,
+            model: nn.Module,
+            optimizer: torch.optim.Optimizer,
+            lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+            loss: any
+        ):
         '''
-        get checkpoint filename
+        checkpoint
 
         Arguments:
         ---
         - epoch
         '''
-        return f'{self.path}/checkpt_{epoch}'
+        prefix = f'{self.path}/checkpt_{epoch}'
+
+        torch.save(model.state_dict(), f'{prefix}.model.pt')
+        torch.save(optimizer.state_dict(), f'{prefix}.optim.pt')
+        torch.save(lr_scheduler.state_dict(), f'{prefix}.lr.pt')
+        np.save(f'{prefix}.loss.npy', loss, allow_pickle=True)
+
+        if self.onCheckpoint:
+            self.onCheckpoint(prefix)
     
     def get_best_fname(self) -> str:
         '''
@@ -181,6 +199,8 @@ def train(
         #endregion
         
         #region val
+        epoch_start = time.time()
+        
         val_mse: list[float] = []
         val_kl: list[float] = []
         val_nll: list[float] = []
@@ -226,20 +246,20 @@ def train(
         # checkpoint
         if checkpoint_params:
             if epoch % checkpoint_params.checkpt_int == 0:
-                prefix = checkpoint_params.get_checkpt_fname(epoch)
-
-                torch.save(model.state_dict(), f'{prefix}.model.pt')
-                torch.save(optimizer.state_dict(), f'{prefix}.optim.pt')
-                torch.save(lr_scheduler.state_dict(), f'{prefix}.lr.pt')
-
-                np.save(f'{prefix}.loss.npy', {
-                    'train_kl': all_train_kl,
-                    'train_nll': all_train_nll,
-                    'train_mse': all_train_mse,
-                    'valid_kl': all_valid_kl,
-                    'valid_nll': all_valid_nll,
-                    'valid_mse': all_valid_mse
-                }, allow_pickle=True)
+                checkpoint_params.checkpoint(
+                    epoch,
+                    model,
+                    optimizer,
+                    lr_scheduler,
+                    {
+                        'train_kl': all_train_kl,
+                        'train_nll': all_train_nll,
+                        'train_mse': all_train_mse,
+                        'valid_kl': all_valid_kl,
+                        'valid_nll': all_valid_nll,
+                        'valid_mse': all_valid_mse
+                    }
+                )
 
             if val_nll < current_best:
                 current_best = val_nll
