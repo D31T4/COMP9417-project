@@ -311,13 +311,11 @@ class RNNDecoder(nn.Module):
         # Run separate MLP for every edge type
         # sum edge embedding for each edge type
         for i in range(start_idx, len(self.msg_fc2)):
-            msg = pre_msg * rel_type[:, :, i:(i + 1)]
-
-            msg = F.tanh(self.msg_fc1[i](msg))
+            msg = F.tanh(self.msg_fc1[i](pre_msg))
             msg = F.dropout(msg, p=self.dropout_prob)
             msg = F.tanh(self.msg_fc2[i](msg))
 
-            all_msgs += msg
+            all_msgs += msg * rel_type[:, :, i:(i + 1)]
 
         # edge2node aggregate
         agg_msgs = torch.matmul(self.edge_weights, all_msgs)
