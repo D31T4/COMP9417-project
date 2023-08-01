@@ -123,6 +123,8 @@ def train(
         for idx, data in tqdm(enumerate(train_loader), desc=f'Epoch: {epoch}, train', total=len(train_loader), disable=silent):
             pred, logits = model(data, data.size(1) - 1, train_params=train_params)
             target = data[:, 1:, :, :]
+
+            #print(f'\nlogits:: {pred.shape}{logits.shape}')
             
             loss_kl = kl_categorial(logits, edge_prior)
             loss_nll = nll_gaussian(pred, target)
@@ -212,7 +214,7 @@ if __name__ == '__main__':
 
     adj_mat = torch.ones((31, 31)) - torch.eye(31)
 
-    model = NRI(state_dim=6, prior_steps=50, adj_mat=adj_mat)
+    model = NRItf(state_dim=6, prior_steps=50, adj_mat=adj_mat)
     edge_prior = torch.tensor([0.91, 0.03, 0.03, 0.03])
 
     train(model, n_epoch=30, datasets=(train_set, val_set, test_set), edge_prior=edge_prior)

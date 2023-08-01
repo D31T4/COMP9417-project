@@ -399,7 +399,7 @@ class MLPEncoder(nn.Module):
 
         # convert node state to node embedding: Tensor[B, V, n_hid]
 
-        #print(f'x first: {x}')
+        #print(f'x first: {x.shape}')
         x = self.mlp1(x)
 
         #print(f'x second: {x}')
@@ -426,7 +426,7 @@ class MLPEncoder(nn.Module):
         #print(self.fc_out(x))
 
         tmp = self.edge2node(x)
-        #print(f'tmp ==: {tmp}')
+        #print(f'tmp ==: {tmp.shape}')
 
         # edge latent
         return self.fc_out(tmp)
@@ -444,8 +444,8 @@ class NRItf(nn.Module):
         prior_steps: int, 
         adj_mat: torch.Tensor, 
         do_prob: float = 0.,
-        edge_types: int = 16,
-        hid_dim: int = 256,
+        edge_types: int = 4,
+        hid_dim: int = 128,
         gumbel_temp: float = 0.5,
     ):
         '''
@@ -483,7 +483,7 @@ class NRItf(nn.Module):
 
         self.tf_decoder = ImageTransformer(
             num_layers=2, d_model=edge_types, num_heads=2, dff=64,
-            vocab_size=3, max_pos_encoding=784
+            vocab_size=6, max_pos_encoding=784
         )
 
     def forward(self, data: torch.Tensor, pred_steps: int, rand: bool = False, train_params: NRITrainingParams = None):
@@ -500,6 +500,7 @@ class NRItf(nn.Module):
         - predictions: tensor[B, pred_steps, V, state_dim]
         '''
         #print(data[:, :self.prior_steps, :])
+        #print(f'data: {data.shape}')
 
         logits = self.encoder(data[:, :self.prior_steps, :])
 
@@ -521,8 +522,18 @@ class NRItf(nn.Module):
         #print(logits)
         
         out, _ = self.tf_decoder(x.detach().numpy(), logits.detach().numpy(), training = True, mask = True)
+
+        out = out.numpy()
+        L = []
+        for m in range(pred_steps):
+            L.append(out)
+        L = torch.Tensor(L)
         #print(type(out))
-        return out, logits
+        L = torch.transpose(L,0,1)
+        #print(L.shape)
+        return L, logits
+    
+    
 
 
 
