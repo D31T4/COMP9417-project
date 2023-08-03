@@ -205,14 +205,19 @@ class Skeleton:
         fig = plt.figure()
         ax = plt.axes(projection='3d')
 
+        min_x = float('inf')
+        max_x = -float('inf')
+
         for joint in self.compute_seq:
             c = joint.coordinate
-            #c = to_meter(c)
+
             ax.plot(c[2], c[0], c[1], 'b.')
+
+            min_x = min(min_x, c[0], c[1], c[2])
+            max_x = max(max_x, c[0], c[1], c[2])
 
             if joint.parent:
                 p = joint.parent.coordinate
-                #p = to_meter(p)
 
                 ax.plot(
                     [c[2], p[2]],
@@ -220,6 +225,11 @@ class Skeleton:
                     [c[1], p[1]],
                     'r'
                 )
+        
+        
+        ax.set_xlim3d(min_x, max_x)
+        ax.set_ylim3d(min_x, max_x)
+        ax.set_zlim3d(min_x, max_x)
 
         return fig
 
@@ -502,6 +512,7 @@ def preprocess(inputDir: str, outputDir: str, silent: bool = False):
     ---
     - inputDir: input directory
     - outputDir: output directory
+    - silent: hide progress bar if set to `True`
     '''
     # delete all files in outputDir
     if os.path.exists(outputDir):
@@ -544,7 +555,7 @@ def preprocess(inputDir: str, outputDir: str, silent: bool = False):
 
         # parse file
         coords = skeleton.get_coords(f'{inputDir}/{filename}')
-        
+
         prefix = filename.removesuffix('.amc.txt')
         torch.save(torch.Tensor(coords), f'{outputDir}/{prefix}.pt')
     #endregion

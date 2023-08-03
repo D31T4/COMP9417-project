@@ -1,3 +1,7 @@
+'''
+NRI with positional encoding
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +13,7 @@ class LearnableStaticVertexEncoding(nn.Module):
     learnable positional encoding for vertices in a static graph
     '''
 
-    def __init__(self, nV: int, emb_dim: int):
+    def __init__(self, nV: int, emb_dim: int, do_prob: float = 0.):
         '''
         Arguments:
         ---
@@ -20,6 +24,8 @@ class LearnableStaticVertexEncoding(nn.Module):
         
         # This embedding layer will act as our learnable positional encoding
         self.positional_embedding = nn.Parameter(torch.empty(nV, emb_dim))
+
+        self.dropout_prob = do_prob
         
         # Initialize the positional embeddings to small values
         nn.init.uniform_(self.positional_embedding, -0.1, 0.1)
@@ -34,7 +40,7 @@ class LearnableStaticVertexEncoding(nn.Module):
         ---
         - position encoding [B, V, S]
         '''
-        return self.positional_embedding.repeat(b, 1, 1)
+        return F.dropout(self.positional_embedding.repeat(b, 1, 1), p=self.dropout_prob)
 
 class MLPEncoderWithPE(MLPEncoder):
     '''
@@ -57,7 +63,7 @@ class MLPEncoderWithPE(MLPEncoder):
             do_prob
         )
 
-        self.positional_encoding = LearnableStaticVertexEncoding(adj_mat.size(0), n_hid)
+        self.positional_encoding = LearnableStaticVertexEncoding(adj_mat.size(0), n_hid, do_prob)
 
     def forward(self, inputs: torch.Tensor):
         # reshape to Tensor[B, V, T * n_in]
@@ -106,7 +112,7 @@ class RNNDecoderWithPE(RNNDecoder):
             skip_first
         )
 
-        self.positional_encoding = LearnableStaticVertexEncoding(adj_mat.size(0), n_hid)
+        self.positional_encoding = LearnableStaticVertexEncoding(adj_mat.size(0), n_hid, do_prob)
 
     def forward(
         self, 

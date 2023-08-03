@@ -6,7 +6,15 @@ Implements [Neural Relational Inference for Interacting Systems](https://github.
 
 ### Reference
 
-- paper: [Neural Relational Inference for Interacting Systems](https://github.com/ethanfetaya/NRI)
+- paper and code: [Neural Relational Inference for Interacting Systems](https://github.com/ethanfetaya/NRI)
+
+### Dependencies
+
+- torch
+
+## `nri_PE.py`
+
+Extends NRI with positional encoding
 
 ### Dependencies
 
@@ -14,17 +22,22 @@ Implements [Neural Relational Inference for Interacting Systems](https://github.
 
 ## `grand.py`
 
-A neural PDE based decoder.
+Extends NRI with a neural PDE based decoder.
 
 ### Reference
 
-- paper: [GRAND: Graph Neural Diffusion](https://arxiv.org/abs/2106.10934)
+- paper and code: [GRAND: Graph Neural Diffusion](https://arxiv.org/abs/2106.10934)
 
 ### Dependencies
 
 - torch
 
-- odeint (ODE solver)
+- torchdiffeq (ODE solver)
 
 ## `train.py`
 
+Code for training models.
+
+### Dependencies
+
+- torch

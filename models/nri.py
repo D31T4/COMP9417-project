@@ -1,3 +1,7 @@
+'''
+Baseline NRI model
+'''
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -271,10 +275,10 @@ class RNNDecoder(nn.Module):
 
         self.dropout_prob = do_prob
 
-        self.send_edges, self.recv_edges, self.edge_weights = compute_graph_stats(adj_mat)
-        self.send_edges = nn.Parameter(self.send_edges, requires_grad=False)
-        self.recv_edges = nn.Parameter(self.recv_edges, requires_grad=False)
-        self.edge_weights = nn.Parameter(self.edge_weights, requires_grad=False)
+        send_edges, recv_edges, edge_weights = compute_graph_stats(adj_mat)
+        self.send_edges = nn.Parameter(send_edges, requires_grad=False)
+        self.recv_edges = nn.Parameter(recv_edges, requires_grad=False)
+        self.edge_weights = nn.Parameter(edge_weights, requires_grad=False)
 
     def single_step_forward(
         self, 
@@ -355,14 +359,11 @@ class RNNDecoder(nn.Module):
         - predictions: tensor[B, T, V, S]
         '''
         if hidden is None:
-            hidden = torch.zeros(data.size(0), data.size(2), self.n_hid)
-
-            if data.is_cuda:
-                hidden = hidden.cuda()
+            hidden = torch.zeros(data.size(0), data.size(2), self.n_hid, device=data.device)
 
         pred_all = []
 
-        for step in range(0, pred_steps):
+        for step in range(pred_steps):
             if step == 0 or (self.training and train_params and step % train_params.ground_truth_interval == 0):
                 ins = data[:, step, :]
             else:
