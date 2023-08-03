@@ -111,7 +111,8 @@ def train(
     all_train_nll: list[float] = [],
     all_valid_mse: list[float] = [],
     all_valid_kl: list[float] = [],
-    all_valid_nll: list[float] = []
+    all_valid_nll: list[float] = [],
+    kl_coef: float = 1.
 ):
     '''
     train model
@@ -126,6 +127,15 @@ def train(
     - checkpoint_params: model checkpoint parameters
     - optimizer: optimizer
     - lr_scheduler: learning rate scheduler
+    - silent: show progress bar if set to `True`
+    - cuda: train on gpu
+    - all_train_mse: for resume training
+    - all_train_kl: for resume training
+    - all_train_nll: for resume training
+    - all_valid_mse: for resume training
+    - all_valid_kl: for resume training
+    - all_valid_nll: for resume training
+    - kl_coef: set weight of kl-loss
     '''
     # current min validation loss
     current_best = float('inf')
@@ -162,7 +172,10 @@ def train(
             
             loss_kl = kl_categorial(F.softmax(logits, dim=-1), edge_prior)
             loss_nll = nll_gaussian(pred, target, variance=NLL_VAR)
-            loss = loss_nll + loss_kl
+            loss = loss_nll + kl_coef * loss_kl
+
+            if hasattr(model.decoder, 'reg_states') and model.decoder.reg_states is not None:
+                loss += model.decoder.reg_states.mean() * 1e-5
 
             loss.backward()
             optimizer.step()
@@ -265,8 +278,6 @@ def train(
                 current_best = val_nll
                 torch.save(model.state_dict(), f'{checkpoint_params.get_best_fname()}.pt')
 
-    # TODO: output test result
-
 def resume(
     path: str,
     model: nn.Module, 
@@ -280,6 +291,11 @@ def resume(
     silent: bool = False,
     cuda: bool = False
 ):
+    '''
+    resume training.
+
+    never used. probably not working.
+    '''
     model.load_state_dict(torch.load(f'{path}.model.pt'))
     optimizer.load_state_dict(torch.load(f'{path}.optim.pt'))
     lr_scheduler.load_state_dict(torch.load(f'{path}.lr.pt'))
